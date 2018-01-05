@@ -1,0 +1,320 @@
+c-----------------------------------------------------------------------
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C     
+      udiff =0.
+      utrans=0.
+
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C     
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C     
+      qvol   = 0.0
+      source = 0.0
+
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'  
+      include 'TOTAL' 
+
+      common/my_var/uxin,uyin,uzin
+
+      real xyz(3,lpart)
+      real uvw(3*lpart)
+      
+      parameter  (xbc = 10.0)
+      real  cspeed
+      parameter  (npts = 96)
+
+      parameter(nmax=lpart,nfldmax=ldim)
+
+      real uxin  (lx1,ly1,lz1,lelt)
+      real uyin  (lx1,ly1,lz1,lelt)
+      real uzin  (lx1,ly1,lz1,lelt)
+      integer inth_hpts, e
+      integer ptv(lpart)
+      
+      REAL DU1   (lx1,ly1,lz1,lelt,3)
+      REAL DU2   (lx1,ly1,lz1,lelt,3)
+      REAL DU3   (lx1,ly1,lz1,lelt,3)
+      REAL DUMMY (lx1*ly1*lz1*lelt,2)
+      REAL NORMVX,NORMVY,NORMV
+      REAL VXE   (lx1,ly1,lz1,lelt)
+      REAL VYE   (lx1,ly1,lz1,lelt)
+      REAL ERRX,ERRY
+
+      LT = lx1*ly1*lz1*lelt
+      NT = lx1*ly1*lz1*nelv
+      nxyz = nx1*ny1*nz1
+      nflds  = ndim
+      cspeed=1.0
+
+C     Compute x-part of the gradient
+C     ------------------------------------------------------------
+      CALL GRADM1  (DU1(1,1,1,1,1),DUMMY(1,1),DUMMY(1,2),VX)
+      CALL OPDSSUM (DU1(1,1,1,1,1),DUMMY(1,1),DUMMY(1,2))
+      CALL OPCOLV  (DU1(1,1,1,1,1),DUMMY(1,1),DUMMY(1,2),VMULT)
+      
+      CALL GRADM1  (DU1(1,1,1,1,2),DUMMY(1,1),DUMMY(1,2),VY)
+      CALL OPDSSUM (DU1(1,1,1,1,2),DUMMY(1,1),DUMMY(1,2))
+      CALL OPCOLV  (DU1(1,1,1,1,2),DUMMY(1,1),DUMMY(1,2),VMULT)
+
+      IF (IF3D) THEN
+         CALL GRADM1  (DU1(1,1,1,1,3),DUMMY(1,1),DUMMY(1,2),VZ)
+         CALL OPDSSUM (DU1(1,1,1,1,3),DUMMY(1,1),DUMMY(1,2))
+         CALL OPCOLV  (DU1(1,1,1,1,3),DUMMY(1,1),DUMMY(1,2),VMULT)
+      END IF
+
+C     Vorticity field is saved down in the temperature field
+C     ------------------------------------------------------------
+      if (mod(istep,iostep).eq.0) then
+         call comp_vort3(DU1,dummy(1,1),dummy(1,2),vx,vy,vz)
+         call copy(t(1,1,1,1,1),DU1,LT)
+      end if
+
+C     Interpolation
+C     ------------------------------------------------------------
+      xin = xbc - cspeed*dt
+      do i=1,npts
+         xyz(1,i) = xin
+      end do
+      
+      ! Get index for the boundary points
+      k = 0
+      do i=1,nt
+         x = xm1(i,1,1,1)
+         if (x.gt.9.99999) then
+            k=k+1
+            ptv(k) = i
+            xyz(2,k) = ym1(i,1,1,1)
+            if (if3d)  xyz(3,k) = zm1(i,1,1,1)
+         end if
+      end do
+
+      call interp_v(uvw,xyz,npts) ! interpolation, xyz->uvw
+
+      ! Place the interpolated points in the boundary points of
+      ! the fields uxin, uyin and uzin
+      k=0
+      if (if3d) then
+         do i=1,npts
+            k = ptv(i)
+            uxin(k,1,1,1) = uvw(i)
+            uyin(k,1,1,1) = uvw(npts + i)
+            uzin(k,1,1,1) = uvw(2*npts + i)
+         end do
+      else                      ! 2D
+         do i=1,npts
+            k = ptv(i)
+            uxin(k,1,1,1) = uvw(i)
+            uyin(k,1,1,1) = uvw(npts + i)
+         end do
+      end if      
+
+C     Compute and print L2 errors
+C     ------------------------------------------------------------
+      CALL ERRORS(ERRX,ERRY)
+      if (nid.eq.0) print *,'ErrXY',time,errx,erry
+
+      return
+      end
+
+
+C-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iside,ieg)
+C     
+C     Convective outflow boundary condition.
+C     (*)  u_t + Cu_x = 0,  C=1
+C     
+C     u^n(x_out,y) = u^{n-1}(x_out-C*dt,y)
+C     Since x+C*t in general does not lie in a GLL point, we need to
+C     make use of iterpolation.
+C     --------------------------------- 
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      common/my_var/uxin(lx1,ly1,lz1,lelt)
+     $              ,uyin(lx1,ly1,lz1,lelt)
+     $              ,uzin(lx1,ly1,lz1,lelt)
+
+      iel = gllel(ieg)
+
+      IF (CBU.EQ.'v  ' .AND. X.LT.1.0) THEN ! Inflow boundary (left)
+         UX = 1.0
+         UY = 0.0
+         IF (IF3D) UZ = 0.0
+
+      ELSE IF (CBU.EQ.'v  ' .AND. X.GT.1.0) THEN ! Outflow boundary (right)
+         ux = uxin(ix,iy,iz,iel)
+         uy = uyin(ix,iy,iz,iel)
+         uz = uzin(ix,iy,iz,iel)
+      END IF
+      temp = 0.0
+      return
+      end
+
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+C     
+C     A single vortex is superimposed into an uniform flow at (x0,y0).
+C     
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      A   = 1.0
+      rad = 0.5
+      x0  = 5.0
+      y0  = 5.0
+      xx = (x-x0)/rad
+      yy = (y-y0)/rad
+
+      ux = 1.0 - A*exp(-0.5*(xx**2+yy**2)) * yy/rad
+      uy =       A*exp(-0.5*(xx**2+yy**2)) * xx/rad 
+      IF (IF3D) uz = 0.0
+      temp = 0.0
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+C     ifto = .true.
+C     param(66) = 4.            ! These give the std nek binary i/o and C	  are 
+C     param(67) = 4.            ! good default values
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine interp_v(uvw,xyz,n)
+
+c     Interpolates velocity for list of points xyz from the vx,vy and vz
+c     fields.
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      real uvw(3*n),xyz(3,n)
+
+      parameter(nmax=lpart,nfldmax=3) 
+      common /rv_intp/ pts(3*nmax)
+      common /iv_intp/ ihandle
+      common /outtmp/ wrk(lx1*ly1*lz1*lelt,nfldmax)
+
+      integer icalld,e
+      save    icalld
+      data    icalld /0/
+
+      ltot = lelt*lx1*ly1*lz1
+      nxyz  = nx1*ny1*nz1
+      ntot  = nxyz*nelt
+
+      if (n.gt.nmax) call exitti ('ABORT: interp_v() n > nmax!$',n)
+      
+      if (nelgt.ne.nelgv) call exitti
+     $   ('ABORT: interp_v() nelgt.ne.nelgv not yet supported!$',nelgv)
+
+      do i=1,n
+         pts(i)     = xyz(1,i)
+         pts(i + n) = xyz(2,i)
+         if (if3d)  pts(i + n*2) = xyz(3,i)
+      enddo
+
+      if (icalld.eq.0) then
+         call intpts_setup(-1.0,ihandle) ! interpolation setup
+         icalld=1
+      end if
+
+      nflds  = ndim ! number of fields to interpolate
+
+      call copy(wrk(1,1),vx,ntot)
+      call copy(wrk(1,2),vy,ntot)
+      if(if3d) call copy(wrk(1,3),vz,ntot)
+
+      ! interpolate
+      call rzero(uvw,nflds*n)
+      call intpts(wrk,nflds,pts,n,uvw,.false.,.true.,ihandle)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine errors(NORMVX,NORMVY)
+
+      include 'SIZE'  
+      include 'TOTAL'
+
+      real NORMVX,NORMVY,NORMV
+     $     ,VXE   (lx1,ly1,lz1,lelt)
+     $     ,VYE   (lx1,ly1,lz1,lelt)
+     $     ,ERRVX (lx1,ly1,lz1,lelt)
+     $     ,ERRVY (lx1,ly1,lz1,lelt)
+      integer NT
+
+      NT = lx1*ly1*lz1*nelv
+
+      A   = 1.0
+      rad = 0.5
+      x0  = 5.0 + TIME
+      y0  = 5.0
+      DO 11, I = 1,NT
+         X = XM1(I,1,1,1)
+         Y = YM1(I,1,1,1)
+         xx = (x-x0)/rad
+         yy = (y-y0)/rad
+         VXE(I,1,1,1) = 1.0 - A*exp(-0.5*(XX**2+YY**2))*YY/RAD
+         VYE(I,1,1,1) =       A*exp(-0.5*(XX**2+YY**2))*XX/RAD
+ 11   CONTINUE
+
+      CALL SUB3(ERRVX,VXE,VX,NT) 
+      CALL SUB3(ERRVY,VYE,VY,NT)
+
+      NORMVX = GL2NORM(ERRVX,NT)
+      NORMVY = GL2NORM(ERRVY,NT)
+
+      return
+      end

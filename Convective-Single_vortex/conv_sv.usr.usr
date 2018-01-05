@@ -1,0 +1,352 @@
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c
+c     Single vortex in a 2D "plug flow"
+c     =================================
+c     
+c     Analyze errors of a convective outflow boundary condition.
+c     Run the script ploterror.sh to plot the L2 errors vs. time  with
+c     gnuplot.
+c     
+c     by Erik Boström, 
+c     Version: 20150329
+c
+c-----------------------------------------------------------------------
+c
+c     Convective BC
+c     --------------------
+c     BDFk/EXTk k=TORDER discretization of the Sommerfeld radiation
+c     condition u_t + Cu_x = 0, with constant convection speed C=1.
+c     
+c     u = (bd1*u1+bd2*u2+bd3*u3-dt*C*(ex1*du1+ex2*du2+ex3*du3))/bd0,
+c
+c     where 
+c     ui,  i=1,2,3     old solutions at times n-i;
+c     dui, i=1,2,3     old derivatives at times n-i; 
+c     bdi, i=0,1,2,3   backward differentiating coefficients;
+c     exi, i=1,2,3     extrapolation coefficients.
+c
+c     IC and BC's
+c     --------------------
+c     A zero circulation vortex is superimposed onto the flow (1,0).
+c
+c     rad = 0.5
+c     x0  = 5.0
+c     y0  = 5.0
+c     xx = (x-x0)/rad
+c     yy = (y-y0)/rad
+c
+c     ux = 1.0 - exp(-0.5*(xx^2+yy^2)) * yy/rad
+c     uy =       exp(-0.5*(xx^2+yy^2)) * xx/rad
+c
+c                        'P'
+c               --------------------
+c               |->                |
+c               |->      --        |
+c           'v' |->    /    \      | 'v'
+c      u=1, v=0 |->    \    /      | convective BC
+c      (inflow) |->      --        | (outflow)
+c               |->                |
+c               --------------------
+c                        'P'
+c
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+      subroutine uservp (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C     
+      udiff =0.
+      utrans=0.
+
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine userf  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C     
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine userq  (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+C     
+      qvol   = 0.0
+      source = 0.0
+
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'  
+      include 'TOTAL' 
+
+      COMMON /MY_VAR/ VU1,VU2,VU3
+     $     ,DU1,DU2,DU3
+
+      REAL  VU1   (lx1,ly1,lz1,lelt,3)
+     $     ,VU2   (lx1,ly1,lz1,lelt,3)
+     $     ,VU3   (lx1,ly1,lz1,lelt,3)
+     $     ,DU1   (lx1,ly1,lz1,lelt,3)
+     $     ,DU2   (lx1,ly1,lz1,lelt,3)
+     $     ,DU3   (lx1,ly1,lz1,lelt,3)
+     $     ,DUMMY (lx1*ly1*lz1*lelt,2)
+     $     ,ERRX,ERRY
+
+      LT = lx1*ly1*lz1*lelt
+      NT = lx1*ly1*lz1*nelv
+
+C     Initialize the old x-derivatives as zeros
+      IF(ISTEP.EQ.0) THEN
+         CALL RZERO3(VU2(1,1,1,1,1),VU2(1,1,1,1,2),VU2(1,1,1,1,3),NT)
+         CALL RZERO3(VU3(1,1,1,1,1),VU3(1,1,1,1,2),VU3(1,1,1,1,3),NT)
+         CALL RZERO3(DU2(1,1,1,1,1),DU2(1,1,1,1,2),DU2(1,1,1,1,3),NT)
+         CALL RZERO3(DU3(1,1,1,1,1),DU3(1,1,1,1,2),DU3(1,1,1,1,3),NT)
+      END IF
+
+C     Save down old values
+C     (This part must be changed. This is costly.)
+      CALL OPCOPY(VU3(1,1,1,1,1),VU3(1,1,1,1,2),VU3(1,1,1,1,3)
+     $     ,      VU2(1,1,1,1,1),VU2(1,1,1,1,2),VU2(1,1,1,1,3))
+      CALL OPCOPY(VU2(1,1,1,1,1),VU2(1,1,1,1,2),VU2(1,1,1,1,3)
+     $     ,      VU1(1,1,1,1,1),VU1(1,1,1,1,2),VU1(1,1,1,1,3))
+      CALL OPCOPY(VU1(1,1,1,1,1),VU1(1,1,1,1,2),VU1(1,1,1,1,3)
+     $     ,      VX,            VY,            VZ)
+      CALL OPCOPY(DU3(1,1,1,1,1),DU3(1,1,1,1,2),DU3(1,1,1,1,3)
+     $     ,      DU2(1,1,1,1,1),DU2(1,1,1,1,2),DU2(1,1,1,1,3))
+      CALL OPCOPY(DU2(1,1,1,1,1),DU2(1,1,1,1,2),DU2(1,1,1,1,3)
+     $     ,      DU1(1,1,1,1,1),DU1(1,1,1,1,2),DU1(1,1,1,1,3))
+
+C     Vorticity field is saved down in the temperature field
+      if (mod(istep,iostep).eq.0) then
+         call comp_vort3(DU1,DUMMY(1,1),DUMMY(1,2),vx,vy,vz)
+         call copy(t(1,1,1,1,1),DU1,LT)
+      end if
+
+C     Compute x-derivatives
+      CALL GRADM1  (DU1(1,1,1,1,1),DUMMY(1,1),DUMMY(1,2),VX)
+      CALL OPDSSUM (DU1(1,1,1,1,1),DUMMY(1,1),DUMMY(1,2))
+      CALL OPCOLV  (DU1(1,1,1,1,1),DUMMY(1,1),DUMMY(1,2),VMULT)
+      
+      CALL GRADM1  (DU1(1,1,1,1,2),DUMMY(1,1),DUMMY(1,2),VY)
+      CALL OPDSSUM (DU1(1,1,1,1,2),DUMMY(1,1),DUMMY(1,2))
+      CALL OPCOLV  (DU1(1,1,1,1,2),DUMMY(1,1),DUMMY(1,2),VMULT)
+
+      IF (IF3D) THEN
+         CALL GRADM1  (DU1(1,1,1,1,3),DUMMY(1,1),DUMMY(1,2),VZ)
+         CALL OPDSSUM (DU1(1,1,1,1,3),DUMMY(1,1),DUMMY(1,2))
+         CALL OPCOLV  (DU1(1,1,1,1,3),DUMMY(1,1),DUMMY(1,2),VMULT)
+      END IF
+
+C     Compute L2 errors
+      CALL ERRORS(ERRX,ERRY)
+
+C     Print for plotting
+      if (nid.eq.0) print *,'ErrXY',time,errx,erry
+
+      return
+      end
+
+
+C-----------------------------------------------------------------------
+      subroutine userbc (ix,iy,iz,iside,ieg)
+C     
+C     Sommerfeld radiation condition.
+C     (*)  u_t + Cu_x = 0,  C=1
+C     
+C     Equation (*) is discretized as follow:
+C     Time step  = 1: BDF1/EXT1
+C     Time step  = 2: BDF2/EXT2
+C     Time step >= 3: BDF3/EXT3
+C     
+C     ISTEP = 1
+C     ---------------------------------
+C     AB0 = 1, AB1 = 0
+C     BD0 = 1, BD1 = 1
+C     ---------------------------------
+C     
+C     ISTEP = 2
+C     ---------------------------------
+C     AB0 = 2,  BD0 = 1.5
+C     AB1 = -1, BD1 = 2
+C     AB2 = 0,  BD2 = -0.5
+C     ---------------------------------
+C     
+C     ISTEP >=3
+C     ---------------------------------
+C     AB0 = 3,  BD0 = 11/6
+C     AB1 = -3, BD1 = 3
+C     AB2 = 1,  BD2 = -3/2
+C     AB3 = 0,  BD3 = 1/3
+C     --------------------------------- 
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      COMMON /MY_VAR/ VU1 (lx1,ly1,lz1,lelt,3) 
+     $     ,          VU2 (lx1,ly1,lz1,lelt,3) 
+     $     ,          VU3 (lx1,ly1,lz1,lelt,3)
+     $     ,          DU1 (lx1,ly1,lz1,lelt,3) 
+     $     ,          DU2 (lx1,ly1,lz1,lelt,3)
+     $     ,          DU3 (lx1,ly1,lz1,lelt,3)
+
+      PARAMETER (CSPEED = 1.00)
+      REAL EXT3X,EXT3Y,EXT3Z
+     $     ,AB0,AB1,AB2,BD0,BD1,BD2,BD3
+      LOGICAL DEBUG
+      DEBUG=.false.
+
+      IEL = GLLEL(IEG)
+
+C     Backward differentiating coefficients
+      BD0 = BD(1)
+      BD1 = BD(2)
+      BD2 = BD(3)
+      BD3 = BD(4)
+
+C     Extrapolation coefficients
+      AB0 = AB(1)
+      AB1 = AB(2)
+      AB2 = AB(3)
+
+      IF (CBU.EQ.'v  ' .AND. X.LT.1.0) THEN ! Inflow boundary (left)
+         UX = 1.0
+         UY = 0.0
+         IF (IF3D) UZ = 0.0
+
+      ELSE IF (CBU.EQ.'v  ' .AND. X.GT.1.0) THEN ! Outflow boundary (right)
+         
+         EXT3X=AB0*DU1(IX,IY,IZ,IEL,1)
+     $        +AB1*DU2(IX,IY,IZ,IEL,1)
+     $        +AB2*DU3(IX,IY,IZ,IEL,1)
+         EXT3Y=AB0*DU1(IX,IY,IZ,IEL,2)
+     $        +AB1*DU2(IX,IY,IZ,IEL,2)
+     $        +AB2*DU3(IX,IY,IZ,IEL,2)
+         IF(IF3D) THEN
+            EXT3Z=AB0*DU1(IX,IY,IZ,IEL,3)
+     $           +AB1*DU2(IX,IY,IZ,IEL,3)
+     $           +AB2*DU3(IX,IY,IZ,IEL,3)
+         ENDIF
+         
+         UX = (BD1*VU1(ix,iy,iz,iel,1)
+     $        +BD2*VU2(ix,iy,iz,iel,1)
+     $        +BD3*VU3(ix,iy,iz,iel,1)
+     $        -DT*CSPEED*EXT3X)/BD0
+         UY=  (BD1*VU1(ix,iy,iz,iel,2)
+     $        +BD2*VU2(ix,iy,iz,iel,2)
+     $        +BD3*VU3(ix,iy,iz,iel,2)
+     $        -DT*CSPEED*EXT3Y)/BD0
+         IF (IF3D) then
+            UZ = (BD1*VU1(ix,iy,iz,iel,3)
+     $           +BD2*VU2(ix,iy,iz,iel,3)
+     $           +BD3*VU3(ix,iy,iz,iel,3)
+     $           -DT*CSPEED*EXT3Z)/BD0
+         ENDIF
+      END IF
+      temp = 0.0
+      return
+      end
+
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+C     
+C     A single vortex is superimposed onto an uniform flow at (x0,y0).
+C     
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      A   = 1.0
+      rad = 0.5
+      x0  = 5.0
+      y0  = 5.0
+      xx = (x-x0)/rad
+      yy = (y-y0)/rad
+
+      ux = 1.0 - A*exp(-0.5*(xx**2+yy**2)) * yy/rad
+      uy =       A*exp(-0.5*(xx**2+yy**2)) * xx/rad 
+      IF (IF3D) uz = 0.0
+      temp = 0.0
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine usrdat
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+C     ifto = .true.
+C     param(66) = 4.            ! These give the std nek binary i/o and C	  are 
+C     param(67) = 4.            ! good default values
+      return
+      end
+
+
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      return
+      end
+
+c-----------------------------------------------------------------------
+      subroutine errors(NORMVX,NORMVY)
+c     Computes the L2-Norm of the velocity field.
+c     We assume that an exact solution is the initial condition moving
+c     with speed 1 in the x direction. 
+c
+c     Output: NORMVX, NORMVY
+
+      include 'SIZE'  
+      include 'TOTAL'
+
+      real NORMVX,NORMVY,NORMV
+     $     ,VXE   (lx1,ly1,lz1,lelt)
+     $     ,VYE   (lx1,ly1,lz1,lelt)
+     $     ,ERRVX (lx1,ly1,lz1,lelt)
+     $     ,ERRVY (lx1,ly1,lz1,lelt)
+      integer NT
+
+      NT = lx1*ly1*lz1*nelv
+
+      A   = 1.0
+      rad = 0.5
+      x0  = 5.0 + TIME
+      y0  = 5.0
+      DO 11, I = 1,NT
+         X = XM1(I,1,1,1)
+         Y = YM1(I,1,1,1)
+         xx = (x-x0)/rad
+         yy = (y-y0)/rad
+         VXE(I,1,1,1) = 1.0 - A*exp(-0.5*(XX**2+YY**2))*YY/RAD
+         VYE(I,1,1,1) =       A*exp(-0.5*(XX**2+YY**2))*XX/RAD
+ 11   CONTINUE
+
+      CALL SUB3(ERRVX,VXE,VX,NT) 
+      CALL SUB3(ERRVY,VYE,VY,NT)
+
+      NORMVX = GL2NORM(ERRVX,NT)
+      NORMVY = GL2NORM(ERRVY,NT)
+
+      return
+      end
